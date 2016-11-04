@@ -1,0 +1,86 @@
+---
+title: "Test RTF Tables"
+author: "Yihui Xie"
+output: rtf_document
+---
+
+# Installation
+
+You need to install the development versions of **knitr** and **rmarkdown** from Github using **devtools**:
+
+```{r}
+if (packageVersion('knitr') < '1.14.14')
+  devtools::install_github(c('yihui/knitr', 'yihui/rmarkdown@feature/raw-rtf'))
+
+if (!require('rtf', quietly = TRUE)) install.packages('rtf')
+if (!require('RTF2', quietly = TRUE)) devtools::install_github('DanniYuGithub/RTF2')
+```
+
+Simple tables just work (this does not even require dev versions from Github), e.g.,
+
+```{r}
+knitr::kable(head(iris))
+```
+
+# How it works
+
+For more complicated tables, we need a wrapper function. The idea is to write out raw RTF content, but the raw content should be protected, otherwise Pandoc will destroy it when converting Markdown to RTF. The protection can be done via `knitr::raw_output()`. The wrapper function `rtf_table()` is more complicated than it should have been, simply because the **rtf** package is not a modularized package, and there is no straightforward way just to create a table without creating a full RTF document. I have to hack it a bit.
+
+```{r}
+library(rtf)
+library(RTF2)
+rtf_table = function(...) {
+  con = tempfile() # write RTF contents to this file
+  on.exit(unlink(con), add = TRUE) # close connection automatically on exit
+  obj = rtf::RTF(con) # create an rtf document shell
+  obj$.rtf = '' # remove rtf document boilerplate
+  RTF2::rtf.table.out(obj, ..., Done = FALSE) # add table output to the document
+  knitr::raw_output(obj$.rtf) # wrap the table with 'RAW_KNITR_CONTENT!!!!!' and print
+}
+```
+
+The actual table is stored in `obj$.rtf`, and passed to `raw_output()`. Now we can create any RTF tables, and you will see them in the output.
+
+# Examples
+
+Here is an example from the [**RTF2** package](https://github.com/DanniYuGithub/RTF2).
+
+```{r}
+tb <- RTF2::dat.ex
+
+titles <- "Just for titles"
+footnotes <- "Just for footnotes"
+progLocation <- "Where the program is"
+dataLocation <- "Where the data is"
+outputLocation <- "Where the output is"
+
+rtf_table(
+  tb.ex,
+  cell1=3, cell2=1, nheader=2,
+  colFormat=c(rep("L",2), rep("R", 2), rep("C", 6)), 
+  cw=c(0.4, 0.5, 0.6, 0.6, rep(0.8, 6)),  
+  width=11, height=8.5,
+  varName=NULL, var.ul="Var Name Group",
+  titles=titles, prd.status='',
+  footns=c(footnotes,
+           paste("\nProgram Location:", progLocation, 
+                 "\nOutput Location:", outputLocation, 
+                 "\nData Location:", dataLocation)),  
+  nline.body=30, addSpaceHeader=0, addSpaceFoot=0
+)
+```
+
+# More technical notes
+
+The idea is not limited to tables only. Any external RTF documents or content can be inserted into R Markdown using `knitr::raw_output()`. If it is an external file, just read its content and pass to `raw_output()`, e.g., a helper function:
+
+```{r}
+rtf_file = function(file) {
+  knitr::raw_output(readLines(file))
+}
+```
+
+Now everything is done on our side. All you need to do is generate the RTF content.
+
+*Note: use Pandoc to translating Markdown to RTF wherever possible. Limit custom work to RTF tables where possible and to these functions: `.add.table`, `.add.table.header.row`, `.add.merged.table.row`, and `.add.table.row`.*
+
